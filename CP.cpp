@@ -16,6 +16,176 @@ using namespace std;
 
 int Copy_Files(const char *src, const char *dst, bool force);
 void List_Files(string baseDir, bool recursive, char *dstDir, bool force);
+void error_mes(const char *s1, const char *s2);
+bool dirExists(const char *path);
+bool isReg(string dir);
+bool isDir(string dir);
+
+
+
+struct CP
+{
+    bool force = false;
+    bool recursive = false;
+};
+
+
+
+int main(int argc, char *argv[])
+{
+
+    const char *short_options = "hrf";
+
+    const struct option long_options[] = {
+        {"help", no_argument, NULL, 'h'},
+        {"recursive", no_argument, NULL, 'r'},
+        {"force", no_argument, NULL, 'f'},
+        {NULL, 0, NULL, 0}};
+
+    int rez;
+    int option_index;
+
+    CP *obj = new CP();
+
+    while ((rez = getopt_long(argc, argv, short_options,
+                              long_options, &option_index)) != -1)
+    {
+        switch (rez)
+        {
+        case 'h':
+        {
+            printf("Страница помощи.\n");
+            const char fname[36] = "help.file";
+            string line;
+            ifstream fin(fname, ios::in);
+
+            while (getline(fin, line))
+            {
+                cout << line << endl;
+            }
+            fin.close();
+            break;
+        };
+        case 'r':
+        {
+            obj->recursive = true;
+            break;
+        };
+
+        case 'f':
+        {
+            obj->force = true;
+            break;
+        };
+        case '?':
+        default:
+        {
+            printf("Такого ключа нет. Попробуйте -h or --help. \n");
+            break;
+        };
+        };
+    }
+
+    // char slash=  "/";
+    char infst = argv[argc - 2][strlen(argv[argc - 2]) - 1];
+    char inScd = argv[argc - 1][strlen(argv[argc - 1]) - 1];
+
+    if (argc > 2)
+    {
+
+        if (infst != '/' && inScd != '/')
+        {
+            // Если оба файла то копируем Файл1 в Файл2
+            Copy_Files(argv[argc - 2], argv[argc - 1], obj->force);
+        }
+        else if (infst != '/' && inScd == '/')
+        {
+            // Если 1 файл, а второй каталог, то проверка на сущ. каталога
+            if (dirExists(argv[argc - 1]))
+            {
+                char tmpSrc[strlen(argv[argc - 2]) + 1];
+                strcpy(tmpSrc, argv[argc - 2]);
+                char *p = strtok(tmpSrc, "/");
+                char *name;
+
+                while (p != NULL)
+                {
+                    name = p;
+                    p = strtok(NULL, "/");
+                }
+                strcat(argv[argc - 1], name);
+                Copy_Files(argv[argc - 2], argv[argc - 1], obj->force);
+            }
+            else
+            {
+                mkdir(argv[argc - 1], 0755);
+                char tmpSrc[strlen(argv[argc - 2]) + 1];
+                strcpy(tmpSrc, argv[argc - 2]);
+                char *p = strtok(tmpSrc, "/");
+                char *name;
+
+                while (p != NULL)
+                {
+                    name = p;
+                    p = strtok(NULL, "/");
+                }
+                strcat(argv[argc - 1], name);
+                Copy_Files(argv[argc - 2], argv[argc - 1], obj->force);
+            }
+        }
+        else if (infst == '/' && inScd != '/')
+        {
+            cout << "Копирование каталога в файл невозможно. См. ./CP -h или ./CP --help для справки" << endl;
+        }
+        else if (infst == '/' && inScd == '/')
+        {
+            // Если оба каталога и введен ключ рекурсии то коипруем каталоги рекурсивно
+            if (obj->recursive)
+            {
+                if (dirExists(argv[argc - 2]))
+                {
+                    if (dirExists(argv[argc - 1]))
+                    {
+                        List_Files(argv[argc - 2], obj->recursive, argv[argc - 1], obj->force);
+                    }
+                    else
+                    {
+                        mkdir(argv[argc - 1], 0755);
+                        List_Files(argv[argc - 2], obj->recursive, argv[argc - 1], obj->force);
+                    }
+                }
+                else
+                {
+                    cout << "Исходного каталога не существует. См. ./CP -h или ./CP --help для справки" << endl;
+                }
+            }
+            else
+            {
+                cout << "Копирование каталога в каталог невозможно без ключа -r или --recursive. См. ./CP -h или ./CP --help для справки" << endl;
+            }
+        }
+    }
+
+    delete obj;
+
+    return 0;
+}
+
+
+
+bool dirExists(const char *path)
+{
+    struct stat sb;
+
+    if (stat(path, &sb) == 0 && S_ISDIR(sb.st_mode))
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
 
 bool isReg(string dir)
 {
@@ -78,6 +248,7 @@ void List_Files(string baseDir, bool recursive, char *dstDir, bool force)
                 }
             }
         }
+        closedir(dp);
         dp = opendir(baseDir.c_str());
 
         char tmpDst[strlen(dstDir) + 1];
@@ -116,17 +287,17 @@ void error_mes(const char *s1, const char *s2)
 
 int Copy_Files(const char *src, const char *dst, bool force = false)
 {
-    int in_file, out_file, n_chars;
+    int in_file, out_file, n_chars, fd;
     char buf[1024];
     if ((in_file = open(src, O_RDONLY)) == -1)
     {
         error_mes("Невозможно открыть исходный файл. ", src);
     }
-    if (((out_file = creat(dst, 0755)) == -1) && force == 0)
+    if (((out_file = creat(dst, 0755)) == -1) && !force)
     {
         error_mes("Невозможно открыть/создать файл назначения. Воспользуйтесь ключом -f. Смотрите ./CP -h \n", dst);
     }
-    else if (((out_file = creat(dst, 0755)) == -1) && force == 1)
+    else if (((out_file = creat(dst, 0755)) == -1) && force)
     {
         chmod(dst, 0755);
         out_file = creat(dst, 0755);
@@ -145,120 +316,11 @@ int Copy_Files(const char *src, const char *dst, bool force = false)
         }
     }
 
+    /* close files */
+    if (close(in_file) == -1 || close(out_file) == -1)
+    {
+        error_mes("Error closing files", "");
+    }
 
     return true;
-}
-
-struct CP
-{
-    bool force = false;
-    bool recursive = false;
-};
-
-int main(int argc, char *argv[])
-{
-
-    const char *short_options = "hrf";
-
-    const struct option long_options[] = {
-        {"help", no_argument, NULL, 'h'},
-        {"recursive", no_argument, NULL, 'r'},
-        {"force", no_argument, NULL, 'f'},
-        {NULL, 0, NULL, 0}};
-
-    int rez;
-    int option_index;
-
-    CP *obj = new CP();
-
-    while ((rez = getopt_long(argc, argv, short_options,
-                              long_options, &option_index)) != -1)
-    {
-        switch (rez)
-        {
-        case 'h':
-        {
-            printf("Страница помощи.\n");
-            const char fname[36] = "help.file";
-            string line;
-            ifstream fin(fname, ios::in);
-
-            while (getline(fin, line))
-            {
-                cout << line << endl;
-            }
-            fin.close();
-            break;
-        };
-        case 'r':
-        {
-            obj->recursive = true;
-            break;
-        };
-
-        case 'f':
-        {
-            obj->force = true;
-            break;
-        };
-        case '?':
-        default:
-        {
-            printf("Такого ключа нет. Попробуйте -h or --help. \n");
-            break;
-        };
-        };
-    }
-
-    if (argc > 2)
-    {
-        // Проверка 1го из 2х параметров на каталог или файл
-        if (!isDir(argv[argc - 2]))
-        {
-            // Проверка 2го из 2х параметров на каталог или файл
-            if (!isDir(argv[argc - 1]))
-            {
-                // Если оба файла то копируем Файл1 в Файл2
-                Copy_Files(argv[argc - 2], argv[argc - 1], obj->force);
-            }
-            else
-            {  
-                // Если 1 файл, а 2 каталог то копируем файл по адресу каталог/файл
-                char tmpSrc[strlen(argv[argc - 2]) + 1];
-                strcpy(tmpSrc, argv[argc - 2]);
-                char *p = strtok(tmpSrc, "/");
-                char *name;
-
-                while (p != NULL)
-                {
-                    name = p;
-                    p = strtok(NULL, "/");
-
-                }
-                strcat(argv[argc - 1], name);
-                Copy_Files(argv[argc - 2], argv[argc - 1], obj->force);
-            }
-        }
-        else
-        {
-            // Проверка 2го из 2х параметров на каталог или файл
-            if (!isDir(argv[argc - 1]))
-            {
-                // Если 1 каталог а 2 файл то ошибка
-                cout << "Нельзя копировать каталог в файл." << endl;
-            }
-            else if ((isDir(argv[argc - 1])) && obj->recursive)
-            {
-                // Если оба каталога и введен ключ рекурсии то коипруем каталоги рекурсивно
-                List_Files(argv[argc - 2], obj->recursive, argv[argc - 1], obj->force);
-            }
-            else
-            {
-                // Если ключа рекурсии не было то ошибка
-                cout << "Без флага -r копирование каталога запрещено. Смотрите ./CP -h" << endl;
-            }
-        }
-    }
-
-    return 0;
 }
